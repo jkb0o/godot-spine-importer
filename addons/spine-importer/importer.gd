@@ -1,6 +1,8 @@
 tool
 extends Control
 
+const AtlasReader = preload("atlas_reader.gd")
+
 var source_file = "res://spineboy/spineboy-mesh.json"
 var target_path = "res://spineboy-gen/"
 
@@ -9,14 +11,14 @@ func _ready():
 	print("ready")
 	get_node("button").connect("pressed", self, "import")
 	
-	
 func import():
+	AtlasReader.import("res://spineboy/spineboy.atlas")
+	
 	var f = File.new()
 	f.open("res://spineboy/spineboy-mesh.json", File.READ)
 	var data = {}
 	data.parse_json(f.get_as_text())
 	import_skeleton(data)
-	return
 	import_meshes(data)
 	
 	
