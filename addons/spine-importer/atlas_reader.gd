@@ -70,8 +70,8 @@ func parse(file):
 		atlases.append(current_atlas)
 	return atlases
 
-static func import(atlas_path):
-	var atlas_reader = AtlasReader.new()
+static func import(atlas_path, target_path):
+	var atlas_reader = new()
 	var atlases = atlas_reader.from(atlas_path)
 	for atlas in atlases:
 		atlas.save(target_path)

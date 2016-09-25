@@ -12,7 +12,7 @@ func _ready():
 	get_node("button").connect("pressed", self, "import")
 	
 func import():
-	AtlasReader.import("res://spineboy/spineboy.atlas")
+	AtlasReader.import("res://spineboy/spineboy.atlas", target_path)
 	return
 	import_meshes()
 	
