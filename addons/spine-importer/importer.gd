@@ -18,23 +18,20 @@ func import():
 	f.open("res://spineboy/spineboy-mesh.json", File.READ)
 	var data = {}
 	data.parse_json(f.get_as_text())
-	import_skeleton(data)
 	import_meshes(data)
+	import_skeleton(data)
 	
 	
 func import_skeleton(data):
 	var bones = {}
 	var skeleton = Skeleton.new()
+	get_node("/root/EditorNode").set_edited_scene(skeleton)
 	var idx = 0
 	for bone in data["bones"]:
 		print("Add bone ", bone["name"], " ", idx)
 		bone["idx"] = idx
 		bones[bone["name"]] = bone
 		skeleton.add_bone(bone["name"])
-		if bone.has("parent"):
-			skeleton.set_bone_parent(idx, bones[bone["parent"]]["idx"])
-		else:
-			skeleton.set_bone_parent(idx, -1)
 		var tr = Transform()
 		var x = 0
 		var y = 0
@@ -48,9 +45,36 @@ func import_skeleton(data):
 		tr = tr.translated(Vector3(x,y,0))
 		tr = tr.rotated(Vector3(0,0,1),rot)
 		skeleton.set_bone_rest(idx, tr)
+		if bone.has("parent"):
+			skeleton.set_bone_parent(idx, bones[bone["parent"]]["idx"])
+		else:
+			skeleton.set_bone_parent(idx, -1)
 		idx += 1
-		if idx == 4:
-			break
+		#if idx == 6:
+		#	break
+		
+		
+	for slot in data["slots"]:
+		var mesh
+		for skin_name in data["skins"]["default"][slot["name"]]:
+			#var skin = data["skins"]["default"][slot["name"]][skin_name]
+			mesh = load(target_path + slot["name"] + "." + skin_name + ".tres")
+			if mesh != null:
+				break
+		if mesh != null:
+			print("Found mesh at " + mesh.get_path())
+			var mesh_instance = MeshInstance.new()
+			skeleton.add_child(mesh_instance)
+			mesh_instance.set_owner(skeleton)
+			mesh_instance.set_mesh(mesh)
+			var idx = skeleton.find_bone(slot["bone"])
+			var tr = skeleton.get_bone_global_pose(idx)
+			mesh_instance.set_transform(tr)
+			
+			
+		
+		
+	
 	var scene = PackedScene.new()
 	scene.pack(skeleton)
 	ResourceSaver.save(target_path+"skeleton.tscn", scene)
