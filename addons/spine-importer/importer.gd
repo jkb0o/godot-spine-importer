@@ -3,7 +3,7 @@ extends Control
 
 const AtlasReader = preload("atlas_reader.gd")
 
-var source_file = "res://spineboy/spineboy-mesh.json"
+var source_file = "res://spineboy/spineboy-hover.json"
 var target_path = "res://spineboy-gen/"
 var slots = {}
 var skeleton
@@ -19,7 +19,7 @@ func import():
 	AtlasReader.import("res://spineboy/spineboy.atlas", target_path)
 	
 	var f = File.new()
-	f.open("res://spineboy/spineboy-mesh.json", File.READ)
+	f.open(source_file, File.READ)
 	data = {}
 	data.parse_json(f.get_as_text())
 	var order = 0
@@ -30,6 +30,7 @@ func import():
 	
 	import_skeleton()
 	import_meshes()
+	import_animations()
 	
 	
 func import_skeleton():
@@ -106,7 +107,7 @@ func import_meshes():
 			#mesh_instance.set_transform(skeleton.get_bone_global_pose(current_bone_index))
 			mesh_instance.set_name(skin_name)
 			mesh_instance.set_skeleton_path("../..")
-			if !attachment || attachment == skin_name:
+			if attachment == skin_name:
 				mesh_instance.show()
 			else:
 				mesh_instance.hide()
@@ -231,8 +232,12 @@ func create_simple_mesh(data, tex):
 	var v_max = tex.get_region().end.y / float(atlas.get_height())
 	var w = data["width"]*0.01 * 0.5
 	var h = data["height"]*0.01 * 0.5
-	var x = data["x"]*0.01
-	var y = data["y"]*0.01
+	var x = 0
+	if data.has("x"):
+		x = data["x"]*0.01
+	var y = 0
+	if data.has("y"):
+		y = data["y"]*0.01
 	var rot = 0
 	if data.has("rotation"):
 		rot = -deg2rad(data["rotation"])
@@ -288,4 +293,79 @@ func create_material(data):
 	mat.set_fixed_flag(FixedMaterial.FLAG_USE_ALPHA, true)
 	mat.set_texture(FixedMaterial.PARAM_DIFFUSE, load("res://spineboy/spineboy.png"))
 	return mat
+	
+var player
+func import_animations():
+	player = AnimationPlayer.new()
+	skeleton.add_child(player)
+	player.set_name("player")
+	player.set_owner(skeleton)
+	for anim_name in data["animations"]:
+		import_animation(anim_name)
+
+func import_animation(animation_name):
+	var anim_data = data["animations"][animation_name]
+	var bones_data = anim_data["bones"]
+	var slots_data = anim_data["slots"]
+	var time = detect_animation_time(anim_data)
+	var animation = Animation.new()
+	animation.set_name(animation_name)
+	animation.set_step(0.0666)
+	animation.set_length(time)
+	var steps = time / 0.0666
+	var idx = 0
+	for bone in bones_data:
+		var bone_data = bones_data[bone]
+		var transforms = []
+		var quats = []
+		var scales = []
+		for i in range(steps):
+			transforms.append(Vector3())
+			quats.append(Quat())
+			scales.append(Vector3(1,1,1))
+			
+		print("add animation for bone ", bone)
+		if bone_data.has("rotate"):
+			animation.add_track(Animation.TYPE_TRANSFORM)
+			for key_data in bone_data["rotate"]:
+				var rot = Quat(Vector3(0,0,1), -deg2rad(key_data["angle"]))
+				animation.transform_track_insert_key(idx, key_data["time"], Vector3(), rot, Vector3(1,1,1))
+			for step in range(steps):
+				quats[step] = animation.transform_track_interpolate(idx, step*0.0666)[1]
+			animation.remove_track(idx)
+		if bone_data.has("translate"):
+			animation.add_track(Animation.TYPE_TRANSFORM)
+			for key_data in bone_data["translate"]:
+				var trans = Vector3(key_data["x"]*0.01, key_data["y"]*0.01, 0)
+				animation.transform_track_insert_key(idx, key_data["time"], trans, Quat(), Vector3(1,1,1))
+			for step in range(steps):
+				transforms[step] = animation.transform_track_interpolate(idx, step*0.0666)[0]
+			animation.remove_track(idx)
+		if bone_data.has("scale"):
+			animation.add_track(Animation.TYPE_TRANSFORM)
+			for key_data in bone_data["scale"]:
+				var scale = Vector3(key_data["x"], key_data["y"], 1)
+				animation.transform_track_insert_key(idx, key_data["time"], Vector3(), Quat(), scale)
+			for step in range(steps):
+				scales[step] = animation.transform_track_interpolate(idx, step*0.0666)[2]
+			animation.remove_track(idx)
+		animation.add_track(Animation.TYPE_TRANSFORM)
+		animation.track_set_path(idx, ".:" + bone)
+		for step in range(steps):
+			animation.transform_track_insert_key(idx, step*0.0666, transforms[step], quats[step], scales[step])
+
+
+		idx += 1
+	
+	player.add_animation(animation_name, animation)
+	
+	
+func detect_animation_time(anim_data):
+	var time = 0
+	for bone in anim_data["bones"]:
+		for curve in ["rotate", "translate", "scale"]:
+			if anim_data["bones"][bone].has(curve):
+				for curve_data in anim_data["bones"][bone][curve]:
+					time = max(time, curve_data["time"])
+	return time
 	
