@@ -55,9 +55,18 @@ func import_skeleton():
 			y = bone["y"]*0.01
 		if bone.has("rotation"):
 			rot = -deg2rad(bone["rotation"])
+		bone["rot"] = rot
+
+		if bone.has("inheritRotation") && !bone["inheritRotation"]:
+			var cidx = idx
+			while skeleton.get_bone_parent(cidx) >= 0:
+				cidx = skeleton.get_bone_parent(cidx)
+				rot -= bones[skeleton.get_bone_name(cidx)]["rot"]
+			
 		tr = tr.rotated(Vector3(0,0,1),rot)
 		tr.origin = Vector3(x,y,0)
 		skeleton.set_bone_rest(idx, tr)
+
 		idx += 1
 			
 		
