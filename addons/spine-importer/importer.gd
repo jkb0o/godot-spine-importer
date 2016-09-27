@@ -3,7 +3,8 @@ extends Control
 
 const AtlasReader = preload("atlas_reader.gd")
 
-var source_file = "res://spineboy/spineboy-hover.json"
+#var source_file = "res://spineboy/spineboy-hover.json"
+var source_file = "res://spineboy/spineboy-mesh.json"
 var target_path = "res://spineboy-gen/"
 var slots = {}
 var skeleton
@@ -121,7 +122,7 @@ func create_mesh(data, tex):
 			return create_static_mesh(data, tex)
 	else:
 		return create_simple_mesh(data, tex)
-
+			
 func create_static_mesh(data, tex):
 	var atlas = tex.get_atlas()
 	var u_min = tex.get_region().pos.x / float(atlas.get_width())
@@ -129,8 +130,10 @@ func create_static_mesh(data, tex):
 	var v_min = tex.get_region().pos.y / float(atlas.get_height())
 	var v_max = tex.get_region().end.y / float(atlas.get_height())
 	var tr = skeleton.get_bone_global_pose(current_bone_index)
-	var st = SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	
+	var mt = MeshTool.new()
+	#var st = SurfaceTool.new()
+	#st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
 	var vertices = []
 	var uvs = []
@@ -146,17 +149,22 @@ func create_static_mesh(data, tex):
 		for sidx in range(3):
 			var vert = vertices[indices[0]]
 			var uv = uvs[indices[0]]
-			st.add_uv(uv)
-			st.add_bones([current_bone_index, -1, -1, -1])
-			st.add_weights([1,0,0,0])
-			st.add_vertex(vert)
+			mt.add_uv(uv)
+			mt.add_bones([current_bone_index, -1, -1, -1])
+			mt.add_weights([1,0,0,0])
+			mt.add_vertex(vert)
+			#st.add_uv(uv)
+			#st.add_bones([current_bone_index, -1, -1, -1])
+			#st.add_weights([1,0,0,0])
+			#st.add_vertex(vert)
 			indices.pop_front()
 
 
 	#print("Vertices found: ", vertices, " triangles: ", data["triangles"].size())
-
-	st.index()
-	return st.commit()
+	mt.index()
+	#st.index()
+	return mt.build_mesh()
+	#return st.commit()
 	
 	
 	
@@ -369,3 +377,77 @@ func detect_animation_time(anim_data):
 					time = max(time, curve_data["time"])
 	return time
 	
+
+class Vertex:
+	extends Reference
+	var pos = Vector3()
+	var uv = Vector2()
+	var bones = IntArray()
+	var weights = FloatArray()
+	
+class MeshTool:
+	extends Reference
+	var verts = []
+	var indices = IntArray()
+	var last_uv
+	var last_bones
+	var last_weights
+	
+	func add_vertex(vert):
+		var v = Vertex.new()
+		v.pos = vert
+		v.uv = last_uv
+		v.bones = last_bones
+		v.weights = last_weights
+		last_uv = null
+		last_bones = null
+		last_weights = null
+		verts.append(v)
+	func add_uv(uv):
+		last_uv = uv
+	func add_bones(bones):
+		last_bones = IntArray(bones)
+	func add_weights(weights):
+		last_weights = FloatArray(weights)
+	func index():
+		var new_verts = []
+		var index_map = {}
+		indices = IntArray()
+
+		for vert in verts:
+			var idx
+			if !index_map.has(vert.pos):
+				idx = index_map.size()
+				new_verts.append(vert)
+				index_map[vert.pos] = idx
+			else:
+				idx = index_map[vert.pos]
+			indices.append(idx)
+		verts = new_verts
+			
+	func build_mesh():
+		var mesh = Mesh.new()
+		var vert_array = Vector3Array()
+		var uvs_array = Vector2Array()
+		var bones_array = FloatArray()
+		var weights_array = FloatArray()
+		for vert in verts:
+			vert_array.append(vert.pos)
+			uvs_array.append(vert.uv)
+			for bone in vert.bones:
+				bones_array.append(bone)
+			for weight in vert.weights:
+				weights_array.append(weight)
+			
+		mesh.add_surface(Mesh.PRIMITIVE_TRIANGLES,[
+			vert_array,
+			null,
+			null,
+			null,
+			uvs_array,
+			null,
+			bones_array,
+			weights_array,
+			indices
+		])
+		return mesh
