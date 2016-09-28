@@ -10,6 +10,8 @@ var slots = {}
 var skeleton
 var data
 var current_bone_index
+var current_slot
+var current_attachment
 
 
 func _ready():
@@ -32,7 +34,6 @@ func import():
 	import_skeleton()
 	import_meshes()
 	import_animations()
-	
 	
 func import_skeleton():
 	var bones = {}
@@ -78,7 +79,12 @@ func import_skeleton():
 	scene.pack(skeleton)
 	ResourceSaver.save(target_path+"skeleton.tscn", scene)
 		
-			
+func attachment_binded_to_single_bone(slot, attachment):
+	var a = data["skins"]["default"][slot][attachment]
+	if a.has("type") && a["type"] == "mesh" && a["vertices"].size() > a["uvs"].size():
+		return false
+	else:
+		return true
 
 func import_meshes():
 	var material = create_material(data)
@@ -86,6 +92,7 @@ func import_meshes():
 	
 	for slot_name in data["skins"]["default"]:
 		current_bone_index = skeleton.find_bone(slots[slot_name]["bone"])
+		current_slot = slot_name
 		var slot = Spatial.new()
 		var attachment = null
 		if slots[slot_name].has("attachment"):
@@ -95,6 +102,7 @@ func import_meshes():
 		slot.global_translate(Vector3(0, 0, slots[slot_name]["order"]))
 		slot.set_owner(skeleton)
 		for skin_name in data["skins"]["default"][slot_name]:
+			current_attachment = skin_name
 			var tex = load(target_path + "spineboy/" + skin_name + ".xml")
 
 			var mesh = create_mesh(data["skins"]["default"][slot_name][skin_name], tex)
@@ -107,11 +115,14 @@ func import_meshes():
 			mesh_instance.set_mesh(mesh)
 			#mesh_instance.set_transform(skeleton.get_bone_global_pose(current_bone_index))
 			mesh_instance.set_name(skin_name)
-			mesh_instance.set_skeleton_path("../..")
 			if attachment == skin_name:
 				mesh_instance.show()
 			else:
 				mesh_instance.hide()
+			if attachment_binded_to_single_bone(current_slot, current_attachment):
+				skeleton.bind_child_node_to_bone(current_bone_index, mesh_instance)
+			else:
+				mesh_instance.set_skeleton_path("../..")
 
 			
 func create_mesh(data, tex):
@@ -129,7 +140,7 @@ func create_static_mesh(data, tex):
 	var u_max = tex.get_region().end.x / float(atlas.get_width())
 	var v_min = tex.get_region().pos.y / float(atlas.get_height())
 	var v_max = tex.get_region().end.y / float(atlas.get_height())
-	var tr = skeleton.get_bone_global_pose(current_bone_index)
+	var tr = Transform()#skeleton.get_bone_global_pose(current_bone_index)
 	
 	var mt = MeshTool.new()
 	#var st = SurfaceTool.new()
@@ -144,27 +155,42 @@ func create_static_mesh(data, tex):
 		else:
 			uvs.append(Vector2(lerp(u_min, u_max, data["uvs"][idx*2]), lerp(v_min, v_max, data["uvs"][idx*2+1])))
 	
-	var indices = data["triangles"]
-	while indices.size():
-		for sidx in range(3):
-			var vert = vertices[indices[0]]
-			var uv = uvs[indices[0]]
-			mt.add_uv(uv)
-			mt.add_bones([current_bone_index, -1, -1, -1])
-			mt.add_weights([1,0,0,0])
-			mt.add_vertex(vert)
-			#st.add_uv(uv)
-			#st.add_bones([current_bone_index, -1, -1, -1])
-			#st.add_weights([1,0,0,0])
-			#st.add_vertex(vert)
-			indices.pop_front()
+	var indices = Array(data["triangles"])
+	for idx in indices:
+		var vert = vertices[idx]
+		var uv = uvs[idx]
+		mt.add_uv(uv)
+		#mt.add_bones([current_bone_index, -1, -1, -1])
+		#mt.add_weights([1,0,0,0])
+		mt.add_vertex(vert)
+	
+	var mtr = Transform(tr.basis.x.normalized(), tr.basis.y.normalized(), tr.basis.z.normalized(), Vector3())
+	for animation_name in self.data["animations"]:
+		if !self.data["animations"][animation_name].has("deform"):
+			continue
+		for skin_name in self.data["animations"][animation_name]["deform"]:
+			var animation_data = self.data["animations"][animation_name]["deform"][skin_name]
+			if !(animation_data.has(current_slot) && animation_data[current_slot].has(current_attachment)):
+				continue
+			print("Add deform for " + current_slot + "/" + current_attachment)
+			var deform_index = 0
+			for deform_data in animation_data[current_slot][current_attachment]:
+				mt.deform(animation_name + "_" + skin_name + "_" + str(deform_index))
+				deform_index += 1
+				var offset = 0
+				if deform_data.has("offset"):
+					offset = deform_data["offset"]
+				for idx in indices:
+					#var vert = Vector3(0, 0, 0)
+					var vert = vertices[idx]
+					if idx >= offset && deform_data["vertices"].size() >= 2*(idx-offset):
+						vert += mtr*Vector3(deform_data["vertices"][2*(idx-offset)]*0.01, deform_data["vertices"][2*(idx-offset)+1]*0.01, 0)
+					mt.add_vertex(vert)
 
-
-	#print("Vertices found: ", vertices, " triangles: ", data["triangles"].size())
+	
 	mt.index()
-	#st.index()
 	return mt.build_mesh()
-	#return st.commit()
+
 	
 	
 	
@@ -177,7 +203,9 @@ func create_weight_mesh(data, tex):
 	
 	var vertices = []
 	var uvs = []
-	var src_data = Array(data["vertices"])
+	var src_data = []
+	for data_elem in data["vertices"]:
+		src_data.append(data_elem)
 	while src_data.size():
 		var info = {"bones":[],"weights":[],"verts":[]}
 		vertices.append(info)
@@ -213,21 +241,20 @@ func create_weight_mesh(data, tex):
 		
 	
 	
-	var st = SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var mt = MeshTool.new()
 	var indices = data["triangles"]
 	while indices.size():
 		for sidx in range(3):
 			var vert = vertices[indices[0]]
 			var uv = uvs[indices[0]]
-			st.add_uv(uv)
-			st.add_bones(vert["bones"])
-			st.add_weights(vert["weights"])
-			st.add_vertex(vert["vert"])
+			mt.add_uv(uv)
+			mt.add_bones(vert["bones"])
+			mt.add_weights(vert["weights"])
+			mt.add_vertex(vert["vert"])
 			indices.pop_front()
-			
-	st.index()
-	return st.commit()
+	mt.index()
+	
+	return mt.build_mesh()
 	
 func create_simple_mesh(data, tex):
 	#return null
@@ -254,7 +281,7 @@ func create_simple_mesh(data, tex):
 	tr = tr.rotated(Vector3(0,0,1),rot)
 	tr.origin = Vector3(x,y,0)
 	
-	var gtr = skeleton.get_bone_global_pose(current_bone_index)
+	var gtr = Transform()#skeleton.get_bone_global_pose(current_bone_index)
 	tr = gtr * tr
 		
 	var vs = [tr*Vector3(-w,-h,0),tr*Vector3(w,-h,0),tr*Vector3(w,h,0),tr*Vector3(-w,h,0)]
@@ -267,28 +294,28 @@ func create_simple_mesh(data, tex):
 	var st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.add_uv(uv[0])
-	st.add_bones([current_bone_index, -1, -1, -1])
-	st.add_weights([1,0,0,0])
+	#st.add_bones([current_bone_index, -1, -1, -1])
+	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[0])
 	st.add_uv(uv[1])
-	st.add_bones([current_bone_index, -1, -1, -1])
-	st.add_weights([1,0,0,0])
+	#st.add_bones([current_bone_index, -1, -1, -1])
+	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[1])
 	st.add_uv(uv[2])
-	st.add_bones([current_bone_index, -1, -1, -1])
-	st.add_weights([1,0,0,0])
+	#st.add_bones([current_bone_index, -1, -1, -1])
+	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[2])
 	
-	st.add_bones([current_bone_index, -1, -1, -1])
-	st.add_weights([1,0,0,0])
+	#st.add_bones([current_bone_index, -1, -1, -1])
+	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[2])
 	st.add_uv(uv[3])
-	st.add_bones([current_bone_index, -1, -1, -1])
-	st.add_weights([1,0,0,0])
+	#st.add_bones([current_bone_index, -1, -1, -1])
+	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[3])
 	st.add_uv(uv[0])
-	st.add_bones([current_bone_index, -1, -1, -1])
-	st.add_weights([1,0,0,0])
+	#st.add_bones([current_bone_index, -1, -1, -1])
+	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[0])
 	st.index()
 	
@@ -315,6 +342,7 @@ func import_animation(animation_name):
 	var anim_data = data["animations"][animation_name]
 	var bones_data = anim_data["bones"]
 	var slots_data = anim_data["slots"]
+	var deform_data = anim_data["deform"]
 	var time = detect_animation_time(anim_data)
 	var animation = Animation.new()
 	animation.set_name(animation_name)
@@ -322,6 +350,9 @@ func import_animation(animation_name):
 	animation.set_length(time)
 	var steps = time / 0.0666
 	var idx = 0
+	
+	# bones
+	
 	for bone in bones_data:
 		var bone_data = bones_data[bone]
 		var transforms = []
@@ -361,9 +392,30 @@ func import_animation(animation_name):
 		animation.track_set_path(idx, ".:" + bone)
 		for step in range(steps):
 			animation.transform_track_insert_key(idx, step*0.0666, transforms[step], quats[step], scales[step])
-
-
 		idx += 1
+		
+	for skin_name in deform_data:
+		for slot_name in deform_data[skin_name]:
+			for attachment_name in deform_data[skin_name][slot_name]:
+				if !attachment_binded_to_single_bone(slot_name, attachment_name):
+					continue
+				var base_path = "./" + slot_name + "/" + attachment_name + ":morph/" + animation_name + "_" + skin_name + "_";
+				var morph_index = 0
+				var keys = deform_data[skin_name][slot_name][attachment_name]
+				var last_path = null
+				for key_data in keys:
+					animation.add_track(Animation.TYPE_VALUE)
+					animation.track_set_path(idx, base_path + str(morph_index))
+					for sidx in range(keys.size()):
+						for kd in keys:
+							if kd["time"] == key_data["time"]:
+								animation.track_insert_key(idx, key_data["time"], float(1))
+							else:
+								animation.track_insert_key(idx, kd["time"], float(0))
+					morph_index += 1
+					idx += 1
+					
+
 	
 	player.add_animation(animation_name, animation)
 	
@@ -392,8 +444,19 @@ class MeshTool:
 	var last_uv
 	var last_bones
 	var last_weights
+	var last_deform = 0
+	var deforms = []
+	var deform_names = []
 	
 	func add_vertex(vert):
+		if deforms.size():
+			var v = Vertex.new()
+			v.pos = vert
+			v.uv = verts[last_deform].uv
+			#v.uv = Vector2()
+			deforms[deforms.size()-1].append(v)
+			last_deform += 1
+			return
 		var v = Vertex.new()
 		v.pos = vert
 		v.uv = last_uv
@@ -409,21 +472,32 @@ class MeshTool:
 		last_bones = IntArray(bones)
 	func add_weights(weights):
 		last_weights = FloatArray(weights)
+	func deform(name):
+		deforms.append([])
+		deform_names.append(name)
+		last_deform = 0
 	func index():
 		var new_verts = []
 		var index_map = {}
 		indices = IntArray()
-
+		var old_idx = 0
+		var new_deforms = []
+		for deform in deforms:
+			new_deforms.append([])
 		for vert in verts:
 			var idx
 			if !index_map.has(vert.pos):
 				idx = index_map.size()
 				new_verts.append(vert)
+				for deform_idx in range(deforms.size()):
+					new_deforms[deform_idx].append(deforms[deform_idx][old_idx])
 				index_map[vert.pos] = idx
 			else:
 				idx = index_map[vert.pos]
 			indices.append(idx)
+			old_idx += 1
 		verts = new_verts
+		deforms = new_deforms
 			
 	func build_mesh():
 		var mesh = Mesh.new()
@@ -434,10 +508,39 @@ class MeshTool:
 		for vert in verts:
 			vert_array.append(vert.pos)
 			uvs_array.append(vert.uv)
-			for bone in vert.bones:
-				bones_array.append(bone)
-			for weight in vert.weights:
-				weights_array.append(weight)
+			if vert.bones != null:
+				for bone in vert.bones:
+					bones_array.append(bone)
+			else:
+				bones_array = null
+			if vert.weights != null:
+				for weight in vert.weights:
+					weights_array.append(weight)
+			else:
+				weights_array = null
+		
+		var deforms_array = []
+		for deform in deforms:
+			var deform_vert_array = Vector3Array()
+			var deform_uv_array = Vector2Array()
+			for deform_vert in deform:
+				deform_vert_array.append(deform_vert.pos)
+				deform_uv_array.append(deform_vert.uv)
+			deforms_array.append([
+				deform_vert_array,
+				null,
+				null,
+				null,
+				deform_uv_array,
+				null,
+				null,
+				null,
+				null
+			])
+			
+		for deform_name in deform_names:
+			mesh.add_morph_target(deform_name)
+		mesh.set_morph_target_mode(0)
 			
 		mesh.add_surface(Mesh.PRIMITIVE_TRIANGLES,[
 			vert_array,
@@ -449,5 +552,7 @@ class MeshTool:
 			bones_array,
 			weights_array,
 			indices
-		])
+		], deforms_array)
+		var aabb = AABB(Vector3(0, 0, -1), Vector3(20,20,5))
+		mesh.set_custom_aabb(aabb)
 		return mesh
