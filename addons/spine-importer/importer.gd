@@ -348,13 +348,15 @@ func import_animation(animation_name):
 	var anim_data = data["animations"][animation_name]
 	var bones_data = anim_data["bones"]
 	var slots_data = anim_data["slots"]
-	var deform_data = anim_data["deform"]
+	var deform_data = {}
+	if anim_data.has("deform"):
+		deform_data = anim_data["deform"]
 	var time = detect_animation_time(anim_data)
 	var animation = Animation.new()
 	animation.set_name(animation_name)
 	animation.set_step(0.0666)
 	animation.set_length(time)
-	var steps = time / 0.0666
+	var steps = time / 0.0666 + 1
 	var idx = 0
 	
 	# bones
