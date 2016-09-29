@@ -4,9 +4,12 @@ extends Control
 const AtlasReader = preload("atlas_reader.gd")
 
 #var source_file = "res://spineboy/spineboy-hover.json"
-var source_file = "res://spineboy/spineboy-mesh.json"
-var target_path = "res://spineboy-gen/"
-var import_deform = false
+#var source_file = "res://spineboy/spineboy-mesh.json"
+var source_file = "res://cow/cow.json"
+#var target_path = "res://spineboy-gen/"
+var target_path = "res://cow-gen/"
+var source_atlas = "res://cow/cow.atlas"
+var import_deform = true
 var slots = {}
 var bones = {}
 var skeleton
@@ -21,13 +24,14 @@ func _ready():
 	get_node("button").connect("pressed", self, "import")
 	
 func import():
-	AtlasReader.import("res://spineboy/spineboy.atlas", target_path)
+	AtlasReader.import(source_atlas, target_path)
 	
 	var f = File.new()
 	f.open(source_file, File.READ)
 	data = {}
 	data.parse_json(f.get_as_text())
 	var order = 0
+	
 	for slot in data["slots"]:
 		slots[slot["name"]] = slot
 		slot["order"] = order
@@ -41,7 +45,7 @@ func import():
 	
 func import_skeleton():
 	var bones = {}
-	skeleton = Skeleton.new()
+	skeleton = preload("skeleton.gd").new()
 	get_node("/root/EditorNode").set_edited_scene(skeleton)
 	var idx = 0
 	for bone in data["bones"]:
@@ -52,14 +56,19 @@ func import_skeleton():
 			skeleton.set_bone_parent(idx, bones[bone["parent"]]["idx"])
 		else:
 			skeleton.set_bone_parent(idx, -1)
-		var tr = Transform()
 		var x = 0
 		var y = 0
+		var scale_x = 1
+		var scale_y = 1
 		var rot = 0
 		if bone.has("x"):
 			x = bone["x"]*0.01
 		if bone.has("y"):
 			y = bone["y"]*0.01
+		if bone.has("scaleX"):
+			scale_x = bone["scaleX"]
+		if bone.has("scaleY"):
+			scale_y = bone["scaleY"]
 		if bone.has("rotation"):
 			rot = -deg2rad(bone["rotation"])
 		bone["rot"] = rot
@@ -69,8 +78,10 @@ func import_skeleton():
 			while skeleton.get_bone_parent(cidx) >= 0:
 				cidx = skeleton.get_bone_parent(cidx)
 				rot -= bones[skeleton.get_bone_name(cidx)]["rot"]
-			
+		
+		var tr = Transform()
 		tr = tr.rotated(Vector3(0,0,1),rot)
+		tr = tr.scaled(Vector3(scale_x, scale_y, 1))
 		tr.origin = Vector3(x,y,0)
 		skeleton.set_bone_rest(idx, tr)
 
@@ -107,7 +118,7 @@ func import_meshes():
 		slot.set_owner(skeleton)
 		for skin_name in data["skins"]["default"][slot_name]:
 			current_attachment = skin_name
-			var tex = load(target_path + "spineboy/" + skin_name + ".xml")
+			var tex = load(target_path + "cow/" + skin_name + ".xml")
 
 			var mesh = create_mesh(data["skins"]["default"][slot_name][skin_name], tex)
 			if !mesh:
@@ -217,13 +228,26 @@ func create_weight_mesh(data, tex):
 		vertices.append(info)
 		var bones_count = src_data[0]
 		src_data.pop_front()
+		var bone_weights = []
 		for i in range(bones_count):
-			if i < 4:
-				info["bones"].append(src_data[0])
-				info["verts"].append(Vector3(src_data[1]*0.01, src_data[2]*0.01, 0))
-				info["weights"].append(src_data[3])
+			bone_weights.append({
+				"bone": src_data[0],
+				"vert": Vector3(src_data[1]*0.01, src_data[2]*0.01, 0),
+				"weight": src_data[3]
+			})
 			for j in range(4):
 				src_data.pop_front()
+		print("Add weight vertex ")
+		bone_weights.sort_custom(self, "sort_weights")
+		for i in range(bone_weights.size()):
+			print("Add weight ", bone_weights[i]["weight"])
+			info["bones"].append(bone_weights[i]["bone"])
+			info["verts"].append(bone_weights[i]["vert"])
+			info["weights"].append(bone_weights[i]["weight"])
+			if i == 3:
+				break
+
+
 		
 	for info in vertices:
 		var weight_pos = null
@@ -235,6 +259,10 @@ func create_weight_mesh(data, tex):
 				weight_pos = weight_pos.linear_interpolate(bone_tr * info["verts"][i], info["weights"][i-1])
 		info["vert"] = weight_pos
 		info.erase("verts")
+		while info["bones"].size() > 4:
+			info["bones"].pop_back()
+			info["weights"].pop_back()
+			
 		for i in range(4-info["bones"].size()):
 			info["bones"].append(-1)
 			info["weights"].append(0)
@@ -261,7 +289,9 @@ func create_weight_mesh(data, tex):
 	mt.index()
 	
 	return mt.build_mesh()
-	
+
+func sort_weights(one, two):
+	return one["weight"] > two["weight"]
 func create_simple_mesh(data, tex):
 	#return null
 	if !data.has("width"):
@@ -332,7 +362,7 @@ func create_material(data):
 	mat.set_flag(Material.FLAG_UNSHADED, true)
 	#mat.set_flag(Material.FLAG_DOUBLE_SIDED, true)
 	mat.set_fixed_flag(FixedMaterial.FLAG_USE_ALPHA, true)
-	mat.set_texture(FixedMaterial.PARAM_DIFFUSE, load("res://spineboy/spineboy.png"))
+	mat.set_texture(FixedMaterial.PARAM_DIFFUSE, load("res://cow/cow.png"))
 	return mat
 	
 var player
@@ -346,12 +376,17 @@ func import_animations():
 
 func import_animation(animation_name):
 	var anim_data = data["animations"][animation_name]
-	var bones_data = anim_data["bones"]
-	var slots_data = anim_data["slots"]
+	var bones_data = {}
+	if anim_data.has("bones"):
+		bones_data = anim_data["bones"]
+	var slots_data = {}
+	if anim_data.has("slots"):
+		slots_data = anim_data["slots"]
 	var deform_data = {}
 	if anim_data.has("deform"):
 		deform_data = anim_data["deform"]
 	var time = detect_animation_time(anim_data)
+	print("Add animation ", animation_name, " : ", time, "s", ", bone tracks: ", bones_data.size(), anim_data["bones"])
 	var animation = Animation.new()
 	animation.set_name(animation_name)
 	animation.set_step(0.0666)
@@ -383,7 +418,10 @@ func import_animation(animation_name):
 		if bone_data.has("translate"):
 			animation.add_track(Animation.TYPE_TRANSFORM)
 			for key_data in bone_data["translate"]:
+				var base_rot = 0
 				var trans = Vector3(key_data["x"]*0.01, key_data["y"]*0.01, 0)
+				var bone_idx = skeleton.find_bone(bone)
+				trans = Transform(skeleton.get_bone_rest(bone_idx).basis).affine_inverse() * trans
 				animation.transform_track_insert_key(idx, key_data["time"], trans, Quat(), Vector3(1,1,1))
 			for step in range(steps):
 				transforms[step] = animation.transform_track_interpolate(idx, step*0.0666)[0]
@@ -399,6 +437,7 @@ func import_animation(animation_name):
 		var track_path = ".:" + bone
 		animation.add_track(Animation.TYPE_TRANSFORM)
 		animation.track_set_path(idx, track_path)
+		
 		for step in range(steps):
 			animation.transform_track_insert_key(idx, step*0.0666, transforms[step], quats[step], scales[step])
 		idx += 1
@@ -425,7 +464,29 @@ func import_animation(animation_name):
 					animation.track_remove_key(orig_idx, key_idx)
 					animation.transform_track_insert_key(orig_idx, 0.0666*key_idx, orig_arr[0], orig_transformed, orig_arr[2])
 				
-				
+	for slot_name in slots_data:
+		var slot_data = slots_data[slot_name]
+		var slot_path = "./" + slot_name.replace("/", "")
+		var attachment_data = []
+		if slot_data.has("attachment"):
+			attachment_data = slot_data["attachment"]
+			
+		for key_data in attachment_data:
+			for attachment_node in skeleton.get_node(slot_path).get_children():
+				var attachment_path = slot_path + "/" + attachment_node.get_name() + ":visibility/visible"
+				idx = animation.find_track(attachment_path)
+				print("add animation for", attachment_path, " track_idx=", idx)
+				if idx < 0:
+					print("adding track ", attachment_path)
+					idx = animation.add_track(Animation.TYPE_VALUE)
+					animation.track_set_path(idx, attachment_path)
+				var visible = key_data["name"].replace("/", "") == attachment_node.get_name()
+				animation.track_insert_key(idx, key_data["time"], visible)
+
+					
+					
+			
+		
 		
 	for skin_name in deform_data:
 		if !import_deform:
@@ -457,6 +518,7 @@ func import_animation(animation_name):
 	
 func detect_animation_time(anim_data):
 	var time = 0
+	print("keys: ", anim_data.keys(), ", ", data["animations"].keys())
 	for bone in anim_data["bones"]:
 		for curve in ["rotate", "translate", "scale"]:
 			if anim_data["bones"][bone].has(curve):

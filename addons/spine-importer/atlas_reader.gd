@@ -73,6 +73,8 @@ func parse(file):
 static func import(atlas_path, target_path):
 	var atlas_reader = new()
 	var atlases = atlas_reader.from(atlas_path)
+	print("Find atlas images: ", atlases.size())
+	var result = {}
 	for atlas in atlases:
 		atlas.save(target_path)
 	

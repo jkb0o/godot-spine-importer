@@ -41,4 +41,8 @@ func save(target_dir):
 		var child_dir = target_dir + interfix + prefix + '/'
 		Directory.new().make_dir_recursive(child_dir)
 		var path = child_dir + key + '.xml'
+		
+		var d = Directory.new()
+		d.make_dir_recursive(path.get_base_dir())
+		print("Saving atlas to ", path)
 		ResourceSaver.save(path, atlas_texture)
