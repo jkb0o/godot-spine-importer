@@ -6,7 +6,9 @@ const AtlasReader = preload("atlas_reader.gd")
 #var source_file = "res://spineboy/spineboy-hover.json"
 var source_file = "res://spineboy/spineboy-mesh.json"
 var target_path = "res://spineboy-gen/"
+var import_deform = false
 var slots = {}
+var bones = {}
 var skeleton
 var data
 var current_bone_index
@@ -30,6 +32,8 @@ func import():
 		slots[slot["name"]] = slot
 		slot["order"] = order
 		order += 0.1
+	for bone in data["bones"]:
+		bones[bone["name"]] = bone
 	
 	import_skeleton()
 	import_meshes()
@@ -166,6 +170,8 @@ func create_static_mesh(data, tex):
 	
 	var mtr = Transform(tr.basis.x.normalized(), tr.basis.y.normalized(), tr.basis.z.normalized(), Vector3())
 	for animation_name in self.data["animations"]:
+		if !import_deform:
+			break
 		if !self.data["animations"][animation_name].has("deform"):
 			continue
 		for skin_name in self.data["animations"][animation_name]["deform"]:
@@ -388,13 +394,40 @@ func import_animation(animation_name):
 			for step in range(steps):
 				scales[step] = animation.transform_track_interpolate(idx, step*0.0666)[2]
 			animation.remove_track(idx)
+		var track_path = ".:" + bone
 		animation.add_track(Animation.TYPE_TRANSFORM)
-		animation.track_set_path(idx, ".:" + bone)
+		animation.track_set_path(idx, track_path)
 		for step in range(steps):
 			animation.transform_track_insert_key(idx, step*0.0666, transforms[step], quats[step], scales[step])
 		idx += 1
+	
+	for bone in bones:
+		var bone_def = bones[bone]
+		var orig_path = ".:" + bone_def["name"]
+		var orig_idx = animation.find_track(orig_path)
+		if orig_idx < 0:
+			continue
+		if bone_def.has("inheritRotation") && !bone_def["inheritRotation"]:
+			print("Fix bone rotation for ", bone)
+			while bone_def.has("parent"):
+				bone_def = bones[bone_def["parent"]]
+				var parent_path = ".:" + bone_def["name"]
+				var parent_idx = animation.find_track(parent_path)
+				if parent_idx < 0:
+					continue
+				for key_idx in range(animation.track_get_key_count(parent_idx)):
+					var orig_arr = animation.transform_track_interpolate(orig_idx, 0.0666*key_idx)
+					var orig_tr = Transform(orig_arr[1])
+					var parent_tr = Transform(animation.transform_track_interpolate(parent_idx, 0.0666*key_idx)[1])
+					var orig_transformed = Quat(orig_tr.rotated(Vector3(0,0,1), parent_tr.basis.get_euler().z).basis)
+					animation.track_remove_key(orig_idx, key_idx)
+					animation.transform_track_insert_key(orig_idx, 0.0666*key_idx, orig_arr[0], orig_transformed, orig_arr[2])
+				
+				
 		
 	for skin_name in deform_data:
+		if !import_deform:
+			break
 		for slot_name in deform_data[skin_name]:
 			for attachment_name in deform_data[skin_name][slot_name]:
 				if !attachment_binded_to_single_bone(slot_name, attachment_name):
