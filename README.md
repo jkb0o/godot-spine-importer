@@ -18,6 +18,13 @@ Planned and implemented features:
 - [ ] Color slot animations
 - [ ] Sort order animations
 - [ ] Inverse kinematics
+- [x] inheritRotation:false
+- [ ] inheritScale:false
+- [x] transform:normal
+- [ ] transform:onlyTranslation
+- [ ] transform:noRotation
+- [ ] transform:noScale
+- [ ] transform:noScaleOrReflection
 
 
 Installation
