@@ -1,52 +1,85 @@
 tool
-extends Control
+extends Node
 
 const AtlasReader = preload("atlas_reader.gd")
 
-#var source_file = "res://spineboy/spineboy-hover.json"
-#var source_file = "res://spineboy/spineboy-mesh.json"
-var source_file = "res://cow/cow.json"
-#var target_path = "res://spineboy-gen/"
-var target_path = "res://cow-gen/"
-var source_atlas = "res://cow/cow.atlas"
-var import_deform = true
+var atlas_path = null
+var json_pathes = null
+var target_path = null
+
+var import_deform = false
+var images = {}
 var slots = {}
 var bones = {}
+var root
+var viewport
 var skeleton
+var scene_3d
 var data
 var current_bone_index
 var current_slot
 var current_attachment
 
-
-func _ready():
-	print("ready")
-	get_node("button").connect("pressed", self, "import")
 	
 func import():
-	AtlasReader.import(source_atlas, target_path)
+	images = AtlasReader.import(atlas_path, target_path)
 	
 	var f = File.new()
-	f.open(source_file, File.READ)
-	data = {}
-	data.parse_json(f.get_as_text())
-	var order = 0
+	for source_file in json_pathes:
+		f.open(source_file, File.READ)
+		data = {}
+		bones = {}
+		slots = {}
+		data.parse_json(f.get_as_text())
+		var order = 0
+		
+		for slot in data["slots"]:
+			slots[slot["name"]] = slot
+			slot["order"] = order
+			order += 0.1
+		for bone in data["bones"]:
+			bones[bone["name"]] = bone
+			
+		
+		
+		create_template()
+		import_skeleton()
+		import_meshes()
+		import_animations()
 	
-	for slot in data["slots"]:
-		slots[slot["name"]] = slot
-		slot["order"] = order
-		order += 0.1
-	for bone in data["bones"]:
-		bones[bone["name"]] = bone
-	
-	import_skeleton()
-	import_meshes()
-	import_animations()
+func create_template():
+	root = Node2D.new()
+	root.set_name("spine")
+	get_node("/root/EditorNode").set_edited_scene(root)
+	viewport = Viewport.new()
+	root.add_child(viewport)
+	viewport.set_owner(root)
+	viewport.set_name("viewport")
+	viewport.set_as_render_target(true)
+	viewport.set_rect(Rect2(0, 0, 512, 512))
+	viewport.set_script(preload("viewport.gd"))
+	scene_3d = Spatial.new()
+	scene_3d.set_name("scene")
+	viewport.add_child(scene_3d)
+	scene_3d.set_owner(root)
+	var camera = Camera.new()
+	camera.set_orthogonal(5, 0.1, 20)
+	camera.set_name("camera")
+	scene_3d.add_child(camera)
+	camera.translate(Vector3(0, 0, 10))
+	camera.set_owner(root)
+	camera.make_current()
+	var sprite = ViewportSprite.new()
+	root.add_child(sprite)
+	sprite.set_name("sprite")
+	sprite.set_owner(root)
+	sprite.set_viewport_path(sprite.get_path_to(viewport))
 	
 func import_skeleton():
 	var bones = {}
 	skeleton = preload("skeleton.gd").new()
-	get_node("/root/EditorNode").set_edited_scene(skeleton)
+	scene_3d.add_child(skeleton)
+	skeleton.set_owner(root)
 	var idx = 0
 	for bone in data["bones"]:
 		bone["idx"] = idx
@@ -102,9 +135,6 @@ func attachment_binded_to_single_bone(slot, attachment):
 		return true
 
 func import_meshes():
-	var material = create_material(data)
-	ResourceSaver.save(target_path + "material.tres", material)
-	
 	for slot_name in data["skins"]["default"]:
 		current_bone_index = skeleton.find_bone(slots[slot_name]["bone"])
 		current_slot = slot_name
@@ -115,18 +145,20 @@ func import_meshes():
 		slot.set_name(slot_name)
 		skeleton.add_child(slot)
 		slot.global_translate(Vector3(0, 0, slots[slot_name]["order"]))
-		slot.set_owner(skeleton)
+		slot.set_owner(root)
 		for skin_name in data["skins"]["default"][slot_name]:
 			current_attachment = skin_name
-			var tex = load(target_path + "cow/" + skin_name + ".xml")
+			if !images.has(skin_name):
+				continue
+			var image = images[skin_name]
 
-			var mesh = create_mesh(data["skins"]["default"][slot_name][skin_name], tex)
+			var mesh = create_mesh(data["skins"]["default"][slot_name][skin_name], image)
 			if !mesh:
 				continue
-			mesh.surface_set_material(0, material)	
+			mesh.surface_set_material(0, create_material(slot_name, skin_name))	
 			var mesh_instance = MeshInstance.new()
 			slot.add_child(mesh_instance)
-			mesh_instance.set_owner(skeleton)
+			mesh_instance.set_owner(root)
 			mesh_instance.set_mesh(mesh)
 			#mesh_instance.set_transform(skeleton.get_bone_global_pose(current_bone_index))
 			mesh_instance.set_name(skin_name)
@@ -140,32 +172,29 @@ func import_meshes():
 				mesh_instance.set_skeleton_path("../..")
 
 			
-func create_mesh(data, tex):
+func create_mesh(data, image):
 	if data.has("type") && data["type"] == "mesh":
 		if data["vertices"].size() > data["uvs"].size():
-			return create_weight_mesh(data, tex)
+			return create_weight_mesh(data, image)
 		else:
-			return create_static_mesh(data, tex)
+			return create_static_mesh(data, image)
 	else:
-		return create_simple_mesh(data, tex)
+		return create_simple_mesh(data, image)
 			
-func create_static_mesh(data, tex):
-	var atlas = tex.get_atlas()
-	var u_min = tex.get_region().pos.x / float(atlas.get_width())
-	var u_max = tex.get_region().end.x / float(atlas.get_width())
-	var v_min = tex.get_region().pos.y / float(atlas.get_height())
-	var v_max = tex.get_region().end.y / float(atlas.get_height())
+func create_static_mesh(data, image):
+	var atlas = image.texture
+	var u_min = image.rect.pos.x / float(atlas.get_width())
+	var u_max = image.rect.end.x / float(atlas.get_width())
+	var v_min = image.rect.pos.y / float(atlas.get_height())
+	var v_max = image.end.y / float(atlas.get_height())
 	var tr = Transform()#skeleton.get_bone_global_pose(current_bone_index)
-	
-	var mt = MeshTool.new()
-	#var st = SurfaceTool.new()
-	#st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
+	var mt = MeshTool.new()
 	var vertices = []
 	var uvs = []
 	for idx in range(data["vertices"].size()*0.5):
 		vertices.append(tr * Vector3(data["vertices"][idx*2]*0.01, data["vertices"][idx*2+1]*0.01, 0))
-		if tex.rotate:
+		if image.rotate:
 			uvs.append(Vector2(lerp(u_min, u_max, data["uvs"][idx*2+1]), lerp(v_min, v_max, 1-data["uvs"][idx*2])))
 		else:
 			uvs.append(Vector2(lerp(u_min, u_max, data["uvs"][idx*2]), lerp(v_min, v_max, data["uvs"][idx*2+1])))
@@ -211,12 +240,12 @@ func create_static_mesh(data, tex):
 	
 	
 	
-func create_weight_mesh(data, tex):
-	var atlas = tex.get_atlas()
-	var u_min = tex.get_region().pos.x / float(atlas.get_width())
-	var u_max = tex.get_region().end.x / float(atlas.get_width())
-	var v_min = tex.get_region().pos.y / float(atlas.get_height())
-	var v_max = tex.get_region().end.y / float(atlas.get_height())
+func create_weight_mesh(data, image):
+	var atlas = image.texture
+	var u_min = image.rect.pos.x / float(atlas.get_width())
+	var u_max = image.rect.end.x / float(atlas.get_width())
+	var v_min = image.rect.pos.y / float(atlas.get_height())
+	var v_max = image.rect.end.y / float(atlas.get_height())
 	
 	var vertices = []
 	var uvs = []
@@ -268,7 +297,7 @@ func create_weight_mesh(data, tex):
 			info["weights"].append(0)
 			
 	for idx in range(data["uvs"].size()*0.5):
-		if tex.rotate:
+		if image.rotate:
 			uvs.append(Vector2(lerp(u_min, u_max, data["uvs"][idx*2+1]), lerp(v_min, v_max, 1-data["uvs"][idx*2])))
 		else:
 			uvs.append(Vector2(lerp(u_min, u_max, data["uvs"][idx*2]), lerp(v_min, v_max, data["uvs"][idx*2+1])))
@@ -292,15 +321,15 @@ func create_weight_mesh(data, tex):
 
 func sort_weights(one, two):
 	return one["weight"] > two["weight"]
-func create_simple_mesh(data, tex):
+func create_simple_mesh(data, image):
 	#return null
 	if !data.has("width"):
 		return null
-	var atlas = tex.get_atlas()
-	var u_min = tex.get_region().pos.x / float(atlas.get_width())
-	var u_max = tex.get_region().end.x / float(atlas.get_width())
-	var v_min = tex.get_region().pos.y / float(atlas.get_height())
-	var v_max = tex.get_region().end.y / float(atlas.get_height())
+	var atlas = image.texture
+	var u_min = image.rect.pos.x / float(atlas.get_width())
+	var u_max = image.rect.end.x / float(atlas.get_width())
+	var v_min = image.rect.pos.y / float(atlas.get_height())
+	var v_max = image.rect.end.y / float(atlas.get_height())
 	var w = data["width"]*0.01 * 0.5
 	var h = data["height"]*0.01 * 0.5
 	var x = 0
@@ -323,54 +352,45 @@ func create_simple_mesh(data, tex):
 	var vs = [tr*Vector3(-w,-h,0),tr*Vector3(w,-h,0),tr*Vector3(w,h,0),tr*Vector3(-w,h,0)]
 	var uv = [Vector2(u_min,v_min),Vector2(u_max,v_min),Vector2(u_max,v_max),Vector2(u_min,v_max)]
 	vs.invert()
-	if tex.rotate:
-		print("Rotating texture")
+	if image.rotate:
 		uv = [uv[3],uv[0],uv[1],uv[2]]
-	#uv.invert()
 	var st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.add_uv(uv[0])
-	#st.add_bones([current_bone_index, -1, -1, -1])
-	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[0])
 	st.add_uv(uv[1])
-	#st.add_bones([current_bone_index, -1, -1, -1])
-	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[1])
 	st.add_uv(uv[2])
-	#st.add_bones([current_bone_index, -1, -1, -1])
-	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[2])
-	
-	#st.add_bones([current_bone_index, -1, -1, -1])
-	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[2])
 	st.add_uv(uv[3])
-	#st.add_bones([current_bone_index, -1, -1, -1])
-	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[3])
 	st.add_uv(uv[0])
-	#st.add_bones([current_bone_index, -1, -1, -1])
-	#st.add_weights([1,0,0,0])
 	st.add_vertex(vs[0])
 	st.index()
 	
 	return st.commit()
 
-func create_material(data):
+
+var materials_cache = {}
+func create_material(slot, attachment):
+	var image = images[attachment]
+	if materials_cache.has(image.texture):
+		return materials_cache[image.texture]
 	var mat = FixedMaterial.new()
 	mat.set_flag(Material.FLAG_UNSHADED, true)
 	#mat.set_flag(Material.FLAG_DOUBLE_SIDED, true)
 	mat.set_fixed_flag(FixedMaterial.FLAG_USE_ALPHA, true)
-	mat.set_texture(FixedMaterial.PARAM_DIFFUSE, load("res://cow/cow.png"))
+	mat.set_texture(FixedMaterial.PARAM_DIFFUSE, image.texture)
+	materials_cache[image.texture] = mat
 	return mat
 	
 var player
 func import_animations():
 	player = AnimationPlayer.new()
-	skeleton.add_child(player)
+	root.add_child(player)
 	player.set_name("player")
-	player.set_owner(skeleton)
+	player.set_owner(root)
 	for anim_name in data["animations"]:
 		import_animation(anim_name)
 
@@ -386,7 +406,7 @@ func import_animation(animation_name):
 	if anim_data.has("deform"):
 		deform_data = anim_data["deform"]
 	var time = detect_animation_time(anim_data)
-	print("Add animation ", animation_name, " : ", time, "s", ", bone tracks: ", bones_data.size(), anim_data["bones"])
+	print("Add animation ", animation_name, " : ", time, "s", ", bone tracks: ", bones_data.size())
 	var animation = Animation.new()
 	animation.set_name(animation_name)
 	animation.set_step(0.0666)
@@ -434,7 +454,7 @@ func import_animation(animation_name):
 			for step in range(steps):
 				scales[step] = animation.transform_track_interpolate(idx, step*0.0666)[2]
 			animation.remove_track(idx)
-		var track_path = ".:" + bone
+		var track_path = str(root.get_path_to(skeleton)) + ":" + bone
 		animation.add_track(Animation.TYPE_TRANSFORM)
 		animation.track_set_path(idx, track_path)
 		
@@ -473,7 +493,7 @@ func import_animation(animation_name):
 			
 		for key_data in attachment_data:
 			for attachment_node in skeleton.get_node(slot_path).get_children():
-				var attachment_path = slot_path + "/" + attachment_node.get_name() + ":visibility/visible"
+				var attachment_path = str(root.get_path_to(skeleton)) + "/" + slot_path + "/" + attachment_node.get_name() + ":visibility/visible"
 				idx = animation.find_track(attachment_path)
 				print("add animation for", attachment_path, " track_idx=", idx)
 				if idx < 0:
@@ -495,7 +515,7 @@ func import_animation(animation_name):
 			for attachment_name in deform_data[skin_name][slot_name]:
 				if !attachment_binded_to_single_bone(slot_name, attachment_name):
 					continue
-				var base_path = "./" + slot_name + "/" + attachment_name + ":morph/" + animation_name + "_" + skin_name + "_";
+				var base_path = str(root.get_path_to(skeleton)) + "/" + slot_name + "/" + attachment_name + ":morph/" + animation_name + "_" + skin_name + "_";
 				var morph_index = 0
 				var keys = deform_data[skin_name][slot_name][attachment_name]
 				var last_path = null

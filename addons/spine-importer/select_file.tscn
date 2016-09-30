@@ -1,0 +1,72 @@
+[gd_scene load_steps=3 format=1]
+
+[ext_resource path="res://addons/spine-importer/select_file.gd" type="Script" id=1]
+[ext_resource path="res://addons/spine-importer/icon_load.png" type="Texture" id=2]
+
+[node name="container" type="HBoxContainer"]
+
+focus/ignore_mouse = false
+focus/stop_mouse = false
+size_flags/horizontal = 2
+size_flags/vertical = 2
+margin/left = 0.0
+margin/top = 0.0
+margin/right = 312.0
+margin/bottom = 24.0
+alignment = 0
+script/script = ExtResource( 1 )
+label = "Import from:"
+mode = 0
+access = null
+filter = "*"
+
+[node name="label" type="Label" parent="."]
+
+rect/min_size = Vector2( 130, 0 )
+focus/ignore_mouse = true
+focus/stop_mouse = true
+size_flags/horizontal = 2
+size_flags/vertical = 3
+margin/left = 0.0
+margin/top = 0.0
+margin/right = 130.0
+margin/bottom = 24.0
+text = "Import from:"
+valign = 1
+percent_visible = 1.0
+lines_skipped = 0
+max_lines_visible = -1
+
+[node name="edit" type="LineEdit" parent="."]
+
+focus/ignore_mouse = false
+focus/stop_mouse = true
+size_flags/horizontal = 3
+size_flags/vertical = 3
+margin/left = 134.0
+margin/top = 0.0
+margin/right = 280.0
+margin/bottom = 24.0
+text = "file://"
+placeholder/alpha = 0.6
+focus_mode = 2
+caret/caret_blink = false
+caret/caret_blink_speed = 0.65
+
+[node name="button" type="Button" parent="."]
+
+focus/ignore_mouse = false
+focus/stop_mouse = true
+size_flags/horizontal = 2
+size_flags/vertical = 2
+margin/left = 284.0
+margin/top = 0.0
+margin/right = 312.0
+margin/bottom = 24.0
+toggle_mode = false
+enabled_focus_mode = 2
+shortcut = null
+icon = ExtResource( 2 )
+flat = false
+
+

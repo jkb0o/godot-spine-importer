@@ -1,7 +1,7 @@
 tool
 extends EditorPlugin
 
-var importer = preload("importer.tscn").instance()
+var importer = preload("import_dialog.tscn").instance()
 
 func _ready():
 	add_control_to_bottom_panel(importer, "Spine")
