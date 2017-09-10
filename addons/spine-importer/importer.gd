@@ -532,7 +532,7 @@ func import_animation(animation_name):
 					print("adding track ", attachment_path)
 					idx = animation.add_track(Animation.TYPE_VALUE)
 					animation.track_set_path(idx, attachment_path)
-				var visible = key_data["name"].replace("/", "") == attachment_node.get_name()
+				var visible = (key_data["name"] != null and key_data["name"].replace("/", "") == attachment_node.get_name())
 				animation.track_insert_key(idx, key_data["time"], visible)
 
 					
