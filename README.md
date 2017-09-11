@@ -1,3 +1,5 @@
+# This is outdated not supported Spine importer. It may be useful only as reference for creating new, true 2d importer, when Godot will supoport 2d meshes. Use https://github.com/jjay/godot-spine-module for godot 2.1 or https://github.com/GodotExplorer/spine for godot 3.0
+
 # Import animations from [Spine](http://esotericsoftware.com)
 
 This is addon for [Godot](http://godotengine.com) engine for importing animations from Spine.
